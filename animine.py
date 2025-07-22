@@ -2277,7 +2277,6 @@ def main():
     parser.add_argument("--dub", action="store_true", help="Search for dubbed anime")
     parser.add_argument("--sub", action="store_true", help="Search for subtitled anime (default)")
     parser.add_argument("--player", choices=["vlc", "mpv"], help="Force specific media player")
-    parser.add_argument("--download", action="store_true", help="Download mode")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--config", help="Custom config file path")
     
