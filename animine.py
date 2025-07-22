@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Advanced Anime CLI Player - Complete Feature-Rich Application
-A comprehensive anime streaming and downloading client with working quality change
+Highly Inspired By ani-cli 
+It is a very amazing Tool Do check out and give stars to original creator 
 
 Features:
 - Multi-provider support (Wixmp, SharePoint, YouTube, HiAnime)
