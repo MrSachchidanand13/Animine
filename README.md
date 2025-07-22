@@ -1,4 +1,4 @@
-```
+
 # Animine 🍥
 
 A simple, highly inspired, transformed, and modified version of [ani-cli](https://github.com/pystardust/ani-cli) — reimagined with enhanced features, cleaner UX, and educational purpose in mind.
@@ -13,4 +13,4 @@ Animine is a lightweight command-line tool to stream and download anime from var
 - **Python 3.8+** (https://www.python.org/downloads/) – The programming language that powers Animine, enabling robust scripting and cross-platform compatibility.
 
 All tools used are open-source and community-driven. This project leverages their capabilities for educational demonstration.
-```
+
