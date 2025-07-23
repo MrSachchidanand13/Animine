@@ -66,8 +66,12 @@ APP_DIR = CURRENT_DIR / ".anime_cli"
 DOWNLOAD_DIR = CURRENT_DIR / "downloads"
 CACHE_DIR = APP_DIR / "cache"
 CONFIG_FILE = APP_DIR / "config.ini"
-HISTORY_DB = APP_DIR / "history.db"
 LOG_FILE = APP_DIR / "app.log"
+
+# JSON Data Files for History, Downloads, Provider Stats
+HISTORY_FILE = APP_DIR / "history.json"
+DOWNLOADS_FILE = APP_DIR / "downloads.json"
+PROVIDER_STATS_FILE = APP_DIR / "provider_stats.json"
 
 # Create necessary directories
 for directory in [APP_DIR, DOWNLOAD_DIR, CACHE_DIR]:
@@ -338,7 +342,7 @@ def sanitize_filename(filename: str) -> str:
     
     return filename or "unnamed"
 
-def _start_watching_session(self, anime_info, episodes, starting_episode, mode, api, provider_manager, player, db_manager, player_path, player_name):
+def _start_watching_session(self, anime_info, episodes, starting_episode, mode, api, provider_manager, player, data_manager, player_path, player_name):
     """Start a complete watching session with navigation"""
     current_episode = starting_episode
     current_links = None
@@ -397,7 +401,7 @@ def _start_watching_session(self, anime_info, episodes, starting_episode, mode, 
             print(f"{AnimeColor.SUCCESS}Player launched successfully{AnimeColor.RESET}")
             
             # Update history
-            db_manager.add_history(anime_info['id'], anime_info['name'], 
+            data_manager.add_history(anime_info['id'], anime_info['name'], 
                                  current_episode, mode, anime_info['episodes'], quality, provider)
         else:
             print(f"{AnimeColor.ERROR}Failed to launch player{AnimeColor.RESET}")
@@ -449,7 +453,7 @@ def _start_watching_session(self, anime_info, episodes, starting_episode, mode, 
                         print(f"{AnimeColor.SUCCESS}Switched to: {new_quality} from {new_provider}{AnimeColor.RESET}")
                         
                         # Update history with new quality
-                        db_manager.add_history(anime_info['id'], anime_info['name'], 
+                        data_manager.add_history(anime_info['id'], anime_info['name'], 
                                              current_episode, mode, anime_info['episodes'], new_quality, new_provider)
                         
                         # Update current selection for future controls
@@ -517,84 +521,54 @@ def show_continue_episode_selection(self, episodes: List[str], last_episode: str
         return None
 
 def find_executable(executable_name: str) -> Optional[str]:
-    """Comprehensive executable finder with multiple search strategies"""
+    """Enhanced Windows executable finder with registry support"""
     logger.debug(f"Searching for executable: {executable_name}")
     
-    # Common installation paths by platform
-    if os.name == 'nt':  # Windows
-        common_paths = [
-            r"C:\Program Files\VideoLAN\VLC",
-            r"C:\Program Files (x86)\VideoLAN\VLC",
-            r"C:\Users\*\scoop\apps\vlc\current",
-            r"C:\Users\*\scoop\apps\mpv\current",
-            r"C:\Users\*\scoop\shims",
-            r"C:\Program Files\mpv",
-            r"C:\Program Files (x86)\mpv",
-            r"C:\tools\mpv",
-            r"C:\ProgramData\chocolatey\bin",
-        ]
-    else:  # Unix-like systems
-        common_paths = [
-            "/usr/bin", "/usr/local/bin", "/opt/bin",
-            "/snap/bin", "/flatpak/bin",
-            f"{os.path.expanduser('~')}/.local/bin",
-            f"{os.path.expanduser('~')}/bin"
-        ]
-
-    # Strategy 1: Check system PATH
-    for path in os.environ.get("PATH", "").split(os.pathsep):
-        if not path:
-            continue
-        full_path = Path(path) / executable_name
-        if full_path.is_file():
-            logger.debug(f"Found {executable_name} in PATH: {full_path}")
-            return str(full_path.resolve())
-
-    # Strategy 2: Check common installation paths
-    for path_pattern in common_paths:
-        if '*' in path_pattern:
-            # Handle wildcard patterns
-            for path in glob.glob(path_pattern):
-                full_path = Path(path) / executable_name
-                if full_path.is_file():
-                    logger.debug(f"Found {executable_name} in common path: {full_path}")
-                    return str(full_path.resolve())
-        else:
-            full_path = Path(path_pattern) / executable_name
-            if full_path.is_file():
-                logger.debug(f"Found {executable_name} in common path: {full_path}")
-                return str(full_path.resolve())
-
-    # Strategy 3: Windows-specific registry and special locations
+    # Strategy 1: Check system PATH first
+    path_result = shutil.which(executable_name)
+    if path_result:
+        return path_result
+    
+    # Strategy 2: Windows-specific paths
     if os.name == 'nt':
-        try:
-            import winreg
-            # Check registry for VLC
-            if 'vlc' in executable_name.lower():
-                try:
-                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\VideoLAN\VLC") as key:
-                        install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
-                        vlc_path = Path(install_dir) / "vlc.exe"
-                        if vlc_path.is_file():
-                            return str(vlc_path)
-                except WindowsError:
-                    pass
-        except ImportError:
-            pass
+        # VLC locations
+        if 'vlc' in executable_name.lower():
+            vlc_paths = [
+                r"C:\Program Files\VideoLAN\VLC\vlc.exe",
+                r"C:\Program Files (x86)\VideoLAN\VLC\vlc.exe",
+                os.path.expanduser(r"~\scoop\apps\vlc\current\vlc.exe"),
+                os.path.expanduser(r"~\AppData\Local\Programs\VLC\vlc.exe"),
+                r"C:\ProgramData\chocolatey\lib\vlc\tools\vlc.exe",
+            ]
+            
+            for path in vlc_paths:
+                if Path(path).is_file():
+                    return path
+            
+            # Registry check for VLC
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\VideoLAN\VLC") as key:
+                    install_dir, _ = winreg.QueryValueEx(key, "InstallDir")
+                    vlc_path = Path(install_dir) / "vlc.exe"
+                    if vlc_path.is_file():
+                        return str(vlc_path)
+            except (ImportError, WindowsError, FileNotFoundError):
+                pass
         
-        # Check user AppData (limited depth search)
-        for base in [os.getenv("APPDATA"), os.getenv("LOCALAPPDATA")]:
-            if base:
-                for root, dirs, files in os.walk(base):
-                    if executable_name in files:
-                        found_path = Path(root) / executable_name
-                        logger.debug(f"Found {executable_name} in AppData: {found_path}")
-                        return str(found_path.resolve())
-                    # Limit search depth for performance
-                    if len(Path(root).parts) - len(Path(base).parts) > 3:
-                        dirs.clear()
-
-    logger.debug(f"Executable {executable_name} not found")
+        # MPV locations
+        if 'mpv' in executable_name.lower():
+            mpv_paths = [
+                r"C:\Program Files\mpv\mpv.exe",
+                r"C:\Program Files (x86)\mpv\mpv.exe",
+                os.path.expanduser(r"~\scoop\apps\mpv\current\mpv.exe"),
+                r"C:\ProgramData\chocolatey\bin\mpv.exe",
+            ]
+            
+            for path in mpv_paths:
+                if Path(path).is_file():
+                    return path
+    
     return None
 
 class ConfigManager:
@@ -792,125 +766,229 @@ class ConfigManager:
         
         return None, None
 
-class DatabaseManager:
-    """Advanced database management for history and downloads"""
+class JSONDataManager:
+    """Advanced JSON-based data management for history and downloads"""
     
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        self.init_database()
+    def __init__(self):
+        # Set default data directory
+        self.data_dir = Path.home() / ".anime_cli"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # JSON file paths
+        self.history_file = self.data_dir / "history.json"
+        self.downloads_file = self.data_dir / "downloads.json"
+        self.provider_stats_file = self.data_dir / "provider_stats.json"
+        
+        self.init_json_files()
     
-    def init_database(self):
-        """Initialize database with comprehensive schema"""
+    def init_json_files(self):
+        """Initialize JSON files with proper structure"""
+        default_files = {
+            self.history_file: {
+                "history": [],
+                "last_updated": datetime.now().isoformat()
+            },
+            self.downloads_file: {
+                "downloads": [],
+                "last_updated": datetime.now().isoformat()
+            },
+            self.provider_stats_file: {
+                "providers": {},
+                "last_updated": datetime.now().isoformat()
+            }
+        }
+        
+        for file_path, default_data in default_files.items():
+            if not file_path.exists():
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(default_data, f, indent=2, ensure_ascii=False)
+                    logger.info(f"Created {file_path.name}")
+                except Exception as e:
+                    logger.error(f"Failed to create {file_path.name}: {e}")
+    
+    def _load_json(self, file_path: Path) -> Dict[str, Any]:
+        """Safely load JSON data"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            
-            # History table with enhanced fields
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    anime_id TEXT NOT NULL,
-                    anime_name TEXT NOT NULL,
-                    episode TEXT NOT NULL,
-                    mode TEXT NOT NULL,
-                    quality TEXT,
-                    provider TEXT,
-                    duration_watched INTEGER DEFAULT 0,
-                    total_duration INTEGER DEFAULT 0,
-                    completion_percentage REAL DEFAULT 0.0,
-                    last_watched TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    total_episodes INTEGER,
-                    rating INTEGER DEFAULT 0,
-                    notes TEXT,
-                    UNIQUE(anime_id, mode)
-                )
-            ''')
-            
-            # Downloads table with detailed tracking
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS downloads (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    anime_name TEXT NOT NULL,
-                    episode TEXT NOT NULL,
-                    quality TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    file_path TEXT NOT NULL,
-                    file_size INTEGER DEFAULT 0,
-                    download_speed REAL DEFAULT 0.0,
-                    download_duration REAL DEFAULT 0.0,
-                    status TEXT DEFAULT 'completed',
-                    download_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    checksum TEXT
-                )
-            ''')
-            
-            # Provider performance tracking
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS provider_stats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    provider_name TEXT NOT NULL,
-                    success_count INTEGER DEFAULT 0,
-                    failure_count INTEGER DEFAULT 0,
-                    avg_response_time REAL DEFAULT 0.0,
-                    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(provider_name)
-                )
-            ''')
-            
-            conn.commit()
-            conn.close()
-            logger.info("Database initialized successfully")
-            
-        except Exception as e:
-            logger.error(f"Database initialization failed: {e}")
-            raise
+            if not file_path.exists():
+                return {}
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to load {file_path.name}: {e}")
+            return {}
     
+    def _save_json(self, file_path: Path, data: Dict[str, Any]) -> bool:
+        """Safely save JSON data with detailed error reporting"""
+        try:
+            # Ensure directory exists
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Add timestamp
+            data["last_updated"] = datetime.now().isoformat()
+            
+            # Write to temporary file first
+            temp_file = file_path.with_suffix('.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            # Move temp file to actual file (atomic operation)
+            temp_file.replace(file_path)
+            
+            # Verify the file was written correctly
+            if file_path.exists() and file_path.stat().st_size > 0:
+                logger.info(f"Successfully saved {file_path.name} ({file_path.stat().st_size} bytes)")
+                return True
+            else:
+                logger.error(f"File {file_path.name} was not saved correctly")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to save {file_path.name}: {e}")
+            print(f"Save error: {e}")
+            return False
+
     def add_history(self, anime_id: str, anime_name: str, episode: str, mode: str, 
                    total_episodes: int, quality: str = None, provider: str = None):
         """Add or update viewing history with enhanced data"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute('''
-                INSERT OR REPLACE INTO history 
-                (anime_id, anime_name, episode, mode, total_episodes, quality, provider, last_watched)
-                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ''', (anime_id, anime_name, episode, mode, total_episodes, quality, provider))
-            conn.commit()
-            conn.close()
+            data = self._load_json(self.history_file)
+            if "history" not in data:
+                data["history"] = []
+            
+            # Debug logging
+            logger.info(f"Adding history: {anime_name} EP{episode} - {quality} from {provider}")
+            print(f"DEBUG: Adding to history: {anime_name} EP{episode}")
+            
+            # Validate input
+            if not anime_id or not anime_name or not episode:
+                logger.warning("Invalid history data provided")
+                print("Invalid history data - missing required fields")
+                return False
+            
+            # Convert episode to string for consistency
+            episode = str(episode)
+            
+            # Find existing entry with same anime_id and mode
+            existing_entry = None
+            for i, entry in enumerate(data["history"]):
+                if entry.get("anime_id") == str(anime_id) and entry.get("mode") == str(mode):
+                    existing_entry = i
+                    break
+            
+            # Create history entry
+            history_entry = {
+                "anime_id": str(anime_id),
+                "anime_name": str(anime_name),
+                "episode": str(episode),
+                "mode": str(mode),
+                "quality": str(quality) if quality else "Unknown",
+                "provider": str(provider) if provider else "Unknown",
+                "duration_watched": 0,
+                "total_duration": 0,
+                "completion_percentage": 0.0,
+                "last_watched": datetime.now().isoformat(),
+                "total_episodes": int(total_episodes) if total_episodes else 0,
+                "rating": 0,
+                "notes": ""
+            }
+            
+            if existing_entry is not None:
+                # Update existing entry (keep some fields from old entry)
+                old_entry = data["history"][existing_entry]
+                history_entry["duration_watched"] = old_entry.get("duration_watched", 0)
+                history_entry["total_duration"] = old_entry.get("total_duration", 0)
+                history_entry["completion_percentage"] = old_entry.get("completion_percentage", 0.0)
+                history_entry["rating"] = old_entry.get("rating", 0)
+                history_entry["notes"] = old_entry.get("notes", "")
+                
+                # Replace the existing entry
+                data["history"][existing_entry] = history_entry
+                logger.info(f"Updated existing history entry for {anime_name}")
+            else:
+                # Add new entry at the beginning
+                data["history"].insert(0, history_entry)
+                logger.info(f"Added new history entry for {anime_name}")
+            
+            # Sort by last_watched (most recent first)
+            data["history"].sort(key=lambda x: x.get("last_watched", ""), reverse=True)
+            
+            # Keep only last 100 entries
+            data["history"] = data["history"][:100]
+            
+            # Save the data
+            success = self._save_json(self.history_file, data)
+            if success:
+                logger.info(f"History successfully saved for {anime_name} episode {episode}")
+                print(f"✓ History updated: {anime_name} EP{episode}")
+                return True
+            else:
+                logger.error("Failed to save history data to JSON file")
+                print("✗ Failed to save history")
+                return False
             
         except Exception as e:
             logger.error(f"Failed to add history: {e}")
-    
+            print(f"Error adding history: {e}")
+            return False
+
     def get_history(self, limit: int = 20) -> List[Tuple]:
         """Get viewing history with detailed information"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.execute('''
-                SELECT anime_name, episode, mode, quality, provider, last_watched, total_episodes, rating
-                FROM history 
-                ORDER BY last_watched DESC 
-                LIMIT ?
-            ''', (limit,))
-            results = cursor.fetchall()
-            conn.close()
-            return results
+            data = self._load_json(self.history_file)
+            history_list = []
+            
+            for entry in data.get("history", [])[:limit]:
+                history_tuple = (
+                    entry.get("anime_name", ""),
+                    entry.get("episode", ""),
+                    entry.get("mode", ""),
+                    entry.get("quality", ""),
+                    entry.get("provider", ""),
+                    entry.get("last_watched", ""),
+                    entry.get("total_episodes", 0),
+                    entry.get("rating", 0)
+                )
+                history_list.append(history_tuple)
+            
+            return history_list
+            
         except Exception as e:
             logger.error(f"Failed to get history: {e}")
             return []
-    
+
     def get_continue_options(self, limit: int = 10) -> List[Tuple]:
         """Get anime that can be continued"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.execute('''
-                SELECT anime_id, anime_name, episode, mode, total_episodes, quality, provider
-                FROM history 
-                WHERE CAST(episode AS INTEGER) < total_episodes
-                ORDER BY last_watched DESC 
-                LIMIT ?
-            ''', (limit,))
-            results = cursor.fetchall()
-            conn.close()
-            return results
+            data = self._load_json(self.history_file)
+            continue_list = []
+            
+            for entry in data.get("history", []):
+                try:
+                    current_ep = int(entry.get("episode", "0"))
+                    total_eps = int(entry.get("total_episodes", "0"))
+                    
+                    # Only include if current episode is less than total episodes
+                    if current_ep < total_eps and total_eps > 0:
+                        continue_tuple = (
+                            entry.get("anime_id", ""),
+                            entry.get("anime_name", ""),
+                            entry.get("episode", ""),
+                            entry.get("mode", ""),
+                            entry.get("total_episodes", 0),
+                            entry.get("quality", ""),
+                            entry.get("provider", "")
+                        )
+                        continue_list.append(continue_tuple)
+                        
+                        if len(continue_list) >= limit:
+                            break
+                            
+                except (ValueError, TypeError):
+                    continue
+            
+            return continue_list
+            
         except Exception as e:
             logger.error(f"Failed to get continue options: {e}")
             return []
@@ -919,14 +997,43 @@ class DatabaseManager:
                     file_path: str, file_size: int = 0, download_speed: float = 0.0):
         """Add download record with performance metrics"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            conn.execute('''
-                INSERT INTO downloads 
-                (anime_name, episode, quality, provider, file_path, file_size, download_speed)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (anime_name, episode, quality, provider, file_path, file_size, download_speed))
-            conn.commit()
-            conn.close()
+            data = self._load_json(self.downloads_file)
+            if "downloads" not in data:
+                data["downloads"] = []
+            
+            # Validate input
+            if not anime_name or not episode:
+                logger.warning("Invalid download data provided")
+                return
+            
+            # Create download entry
+            download_entry = {
+                "anime_name": str(anime_name),
+                "episode": str(episode),
+                "quality": quality or "Unknown",
+                "provider": provider or "Unknown",
+                "file_path": str(file_path),
+                "file_size": int(file_size) if file_size else 0,
+                "download_speed": float(download_speed) if download_speed else 0.0,
+                "download_duration": 0.0,
+                "status": "completed",
+                "download_date": datetime.now().isoformat(),
+                "checksum": ""
+            }
+            
+            # Add to beginning of list
+            data["downloads"].insert(0, download_entry)
+            
+            # Sort by download_date (most recent first)
+            data["downloads"].sort(key=lambda x: x.get("download_date", ""), reverse=True)
+            
+            # Keep only last 200 downloads
+            data["downloads"] = data["downloads"][:200]
+            
+            # Save the data
+            success = self._save_json(self.downloads_file, data)
+            if success:
+                logger.info(f"Download recorded: {anime_name} episode {episode}")
             
         except Exception as e:
             logger.error(f"Failed to add download record: {e}")
@@ -934,16 +1041,24 @@ class DatabaseManager:
     def get_downloads(self, limit: int = 20) -> List[Tuple]:
         """Get download history"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.execute('''
-                SELECT anime_name, episode, quality, provider, file_path, file_size, download_date, status
-                FROM downloads 
-                ORDER BY download_date DESC 
-                LIMIT ?
-            ''', (limit,))
-            results = cursor.fetchall()
-            conn.close()
-            return results
+            data = self._load_json(self.downloads_file)
+            downloads_list = []
+            
+            for entry in data.get("downloads", [])[:limit]:
+                download_tuple = (
+                    entry.get("anime_name", ""),
+                    entry.get("episode", ""),
+                    entry.get("quality", ""),
+                    entry.get("provider", ""),
+                    entry.get("file_path", ""),
+                    entry.get("file_size", 0),
+                    entry.get("download_date", ""),
+                    entry.get("status", "completed")
+                )
+                downloads_list.append(download_tuple)
+            
+            return downloads_list
+            
         except Exception as e:
             logger.error(f"Failed to get downloads: {e}")
             return []
@@ -951,40 +1066,41 @@ class DatabaseManager:
     def update_provider_stats(self, provider: str, success: bool, response_time: float = 0.0):
         """Update provider performance statistics"""
         try:
-            conn = sqlite3.connect(self.db_path)
+            data = self._load_json(self.provider_stats_file)
+            if "providers" not in data:
+                data["providers"] = {}
             
-            # Get current stats
-            cursor = conn.execute(
-                'SELECT success_count, failure_count, avg_response_time FROM provider_stats WHERE provider_name = ?',
-                (provider,)
-            )
-            result = cursor.fetchone()
+            if provider not in data["providers"]:
+                # Initialize new provider
+                data["providers"][provider] = {
+                    "success_count": 0,
+                    "failure_count": 0,
+                    "avg_response_time": 0.0,
+                    "last_used": datetime.now().isoformat()
+                }
             
-            if result:
-                success_count, failure_count, avg_response_time = result
-                if success:
-                    success_count += 1
-                else:
-                    failure_count += 1
-                
-                # Update average response time
-                total_requests = success_count + failure_count
-                avg_response_time = ((avg_response_time * (total_requests - 1)) + response_time) / total_requests
-                
-                conn.execute('''
-                    UPDATE provider_stats 
-                    SET success_count = ?, failure_count = ?, avg_response_time = ?, last_used = CURRENT_TIMESTAMP
-                    WHERE provider_name = ?
-                ''', (success_count, failure_count, avg_response_time, provider))
+            provider_data = data["providers"][provider]
+            
+            # Update counters
+            if success:
+                provider_data["success_count"] += 1
             else:
-                # Insert new record
-                conn.execute('''
-                    INSERT INTO provider_stats (provider_name, success_count, failure_count, avg_response_time)
-                    VALUES (?, ?, ?, ?)
-                ''', (provider, 1 if success else 0, 0 if success else 1, response_time))
+                provider_data["failure_count"] += 1
             
-            conn.commit()
-            conn.close()
+            # Update average response time
+            total_requests = provider_data["success_count"] + provider_data["failure_count"]
+            if total_requests > 1:
+                current_avg = provider_data["avg_response_time"]
+                provider_data["avg_response_time"] = ((current_avg * (total_requests - 1)) + response_time) / total_requests
+            else:
+                provider_data["avg_response_time"] = response_time
+            
+            provider_data["last_used"] = datetime.now().isoformat()
+            
+            # Save the data
+            success_save = self._save_json(self.provider_stats_file, data)
+            if success_save:
+                logger.debug(f"Provider stats updated for {provider}")
             
         except Exception as e:
             logger.error(f"Failed to update provider stats: {e}")
@@ -992,20 +1108,93 @@ class DatabaseManager:
     def get_provider_rankings(self) -> List[Tuple]:
         """Get provider performance rankings"""
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.execute('''
-                SELECT provider_name, success_count, failure_count, avg_response_time,
-                       ROUND(success_count * 100.0 / (success_count + failure_count), 2) as success_rate
-                FROM provider_stats 
-                WHERE success_count + failure_count > 0
-                ORDER BY success_rate DESC, avg_response_time ASC
-            ''')
-            results = cursor.fetchall()
-            conn.close()
-            return results
+            data = self._load_json(self.provider_stats_file)
+            rankings = []
+            
+            for provider_name, stats in data.get("providers", {}).items():
+                success_count = stats.get("success_count", 0)
+                failure_count = stats.get("failure_count", 0)
+                avg_response_time = stats.get("avg_response_time", 0.0)
+                
+                total_requests = success_count + failure_count
+                if total_requests > 0:
+                    success_rate = round((success_count * 100.0) / total_requests, 2)
+                    
+                    ranking_tuple = (
+                        provider_name,
+                        success_count,
+                        failure_count,
+                        avg_response_time,
+                        success_rate
+                    )
+                    rankings.append(ranking_tuple)
+            
+            # Sort by success rate (descending), then by response time (ascending)
+            rankings.sort(key=lambda x: (-x[4], x[3]))
+            
+            return rankings
+            
         except Exception as e:
             logger.error(f"Failed to get provider rankings: {e}")
             return []
+    
+    def clear_history(self):
+        """Clear all viewing history"""
+        try:
+            data = {"history": [], "last_updated": datetime.now().isoformat()}
+            success = self._save_json(self.history_file, data)
+            if success:
+                logger.info("History cleared successfully")
+            return success
+        except Exception as e:
+            logger.error(f"Failed to clear history: {e}")
+            return False
+    
+    def clear_downloads(self):
+        """Clear all download history"""
+        try:
+            data = {"downloads": [], "last_updated": datetime.now().isoformat()}
+            success = self._save_json(self.downloads_file, data)
+            if success:
+                logger.info("Download history cleared successfully")
+            return success
+        except Exception as e:
+            logger.error(f"Failed to clear download history: {e}")
+            return False
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get comprehensive statistics"""
+        try:
+            history_data = self._load_json(self.history_file)
+            downloads_data = self._load_json(self.downloads_file)
+            provider_data = self._load_json(self.provider_stats_file)
+            
+            stats = {
+                "total_anime_watched": len(history_data.get("history", [])),
+                "total_downloads": len(downloads_data.get("downloads", [])),
+                "total_providers_used": len(provider_data.get("providers", {})),
+                "continue_available": len(self.get_continue_options(100)),
+                "last_activity": None
+            }
+            
+            # Get last activity date
+            all_dates = []
+            for entry in history_data.get("history", []):
+                if entry.get("last_watched"):
+                    all_dates.append(entry["last_watched"])
+            
+            for entry in downloads_data.get("downloads", []):
+                if entry.get("download_date"):
+                    all_dates.append(entry["download_date"])
+            
+            if all_dates:
+                stats["last_activity"] = max(all_dates)
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Failed to get stats: {e}")
+            return {}
 
 class HexDecoder:
     """Advanced hex decoder for provider URLs with error handling"""
@@ -1070,9 +1259,9 @@ class HexDecoder:
 class ProviderManager:
     """Advanced provider management with intelligent fallback and performance tracking"""
     
-    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
+    def __init__(self, config_manager: ConfigManager, data_manager: JSONDataManager):
         self.config = config_manager
-        self.db = db_manager
+        self.db = data_manager
         self.decoder = HexDecoder()
         self.session = requests.Session()
         self.session.headers.update({
@@ -1487,9 +1676,9 @@ class AnimeAPI:
 class DownloadManager:
     """Advanced download manager with curl, progress tracking, and retry logic"""
     
-    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
+    def __init__(self, config_manager: ConfigManager, data_manager: JSONDataManager):
         self.config = config_manager
-        self.db = db_manager
+        self.db = data_manager
         self.active_downloads = {}
         
         # Check curl availability
@@ -1727,28 +1916,34 @@ class MediaPlayer:
     
     def launch_player(self, url: str, anime_name: str, episode: str, 
                      player_path: str, player_name: str, mode: str = 'sub') -> Optional[subprocess.Popen]:
-        """Launch media player with proper error handling"""
+        """Windows-optimized player launching"""
         try:
             title = f"{anime_name} - Episode {episode}"
             cmd = self.get_player_command(url, title, player_path, player_name, mode)
             
-            # Close previous instance
             self.close_player()
             
-            logger.info(f"Launching {player_name} with title: {title} (mode: {mode})")
-            
-            self.current_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
+            if os.name == 'nt':
+                # Windows-specific process creation
+                self.current_process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW  # Hide console window
+                )
+            else:
+                self.current_process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
             
             return self.current_process
             
         except Exception as e:
             logger.error(f"Failed to launch {player_name}: {e}")
             return None
-    
+
     def close_player(self):
         """Close current player instance"""
         if self.current_process and self.current_process.poll() is None:
@@ -1778,9 +1973,9 @@ class MediaPlayer:
 class UserInterface:
     """Advanced user interface with intelligent menus and navigation"""
     
-    def __init__(self, config_manager: ConfigManager, db_manager: DatabaseManager):
+    def __init__(self, config_manager: ConfigManager, data_manager: JSONDataManager):
         self.config = config_manager
-        self.db = db_manager
+        self.db = data_manager
     
     def show_main_menu(self) -> int:
         """Display main application menu"""
@@ -2063,9 +2258,9 @@ class UserInterface:
         
         input("Press Enter to continue...")
     
-    def handle_continue_watching(self, api, provider_manager, player, config_manager, db_manager, args, player_path, player_name):
+    def handle_continue_watching(self, api, provider_manager, player, config_manager, data_manager, args, player_path, player_name):
         """Complete continue watching flow function"""
-        continue_options = db_manager.get_continue_options()
+        continue_options = data_manager.get_continue_options()
         if not continue_options:
             print(f"{AnimeColor.WARNING}No anime to continue{AnimeColor.RESET}")
             input("Press Enter to continue...")
@@ -2111,7 +2306,7 @@ class UserInterface:
                     api, 
                     provider_manager, 
                     player, 
-                    db_manager, 
+                    data_manager, 
                     player_path, 
                     player_name
                 )
@@ -2122,7 +2317,7 @@ class UserInterface:
         
         input("Press Enter to continue...")
     
-    def _start_watching_session(self, anime_info, episodes, starting_episode, mode, api, provider_manager, player, db_manager, player_path, player_name):
+    def _start_watching_session(self, anime_info, episodes, starting_episode, mode, api, provider_manager, player, data_manager, player_path, player_name):
         """Start a complete watching session with navigation"""
         current_episode = starting_episode
         current_links = None
@@ -2181,7 +2376,7 @@ class UserInterface:
                 print(f"{AnimeColor.SUCCESS}Player launched successfully{AnimeColor.RESET}")
                 
                 # Update history
-                db_manager.add_history(anime_info['id'], anime_info['name'], 
+                data_manager.add_history(anime_info['id'], anime_info['name'], 
                                      current_episode, mode, anime_info['episodes'], quality, provider)
             else:
                 print(f"{AnimeColor.ERROR}Failed to launch player{AnimeColor.RESET}")
@@ -2233,7 +2428,7 @@ class UserInterface:
                             print(f"{AnimeColor.SUCCESS}Switched to: {new_quality} from {new_provider}{AnimeColor.RESET}")
                             
                             # Update history with new quality
-                            db_manager.add_history(anime_info['id'], anime_info['name'], 
+                            data_manager.add_history(anime_info['id'], anime_info['name'], 
                                                  current_episode, mode, anime_info['episodes'], new_quality, new_provider)
                             
                             # Update current selection for future controls
@@ -2269,13 +2464,12 @@ class UserInterface:
 
 
 def main():
-    """Main application entry point with comprehensive error handling"""
+    """Main application entry point with Windows optimization"""
     parser = argparse.ArgumentParser(
-        description=f"{APP_NAME} v{APP_VERSION} - Advanced anime streaming and downloading"
+        description=f"{APP_NAME} v{APP_VERSION} - Windows-optimized anime streaming"
     )
     parser.add_argument("query", nargs="*", help="Anime search query")
     parser.add_argument("--dub", action="store_true", help="Search for dubbed anime")
-    parser.add_argument("--sub", action="store_true", help="Search for subtitled anime (default)")
     parser.add_argument("--player", choices=["vlc", "mpv"], help="Force specific media player")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--config", help="Custom config file path")
@@ -2283,14 +2477,14 @@ def main():
     args = parser.parse_args()
     
     try:
-        # Initialize components
+        # ✅ FIXED: Initialize components with correct constructor
         config_manager = ConfigManager(Path(args.config) if args.config else CONFIG_FILE)
-        db_manager = DatabaseManager(HISTORY_DB)
+        data_manager = JSONDataManager()  # ✅ FIXED: No parameters needed
         api = AnimeAPI(config_manager)
-        provider_manager = ProviderManager(config_manager, db_manager)
-        download_manager = DownloadManager(config_manager, db_manager)
+        provider_manager = ProviderManager(config_manager, data_manager)
+        download_manager = DownloadManager(config_manager, data_manager)
         player = MediaPlayer(config_manager)
-        ui = UserInterface(config_manager, db_manager)
+        ui = UserInterface(config_manager, data_manager)
         
         # Set debug mode
         if args.debug:
@@ -2390,7 +2584,7 @@ def main():
                             print(f"{AnimeColor.SUCCESS}{player_name} launched successfully{AnimeColor.RESET}")
                             
                             # Update history
-                            db_manager.add_history(anime_info['id'], anime_info['name'], 
+                            data_manager.add_history(anime_info['id'], anime_info['name'], 
                                                  current_episode, mode, anime_info['episodes'], quality, provider)
                         else:
                             print(f"{AnimeColor.ERROR}Failed to launch player{AnimeColor.RESET}")
@@ -2441,7 +2635,7 @@ def main():
                                         print(f"{AnimeColor.SUCCESS}Switched to: {new_quality} from {new_provider}{AnimeColor.RESET}")
                                         
                                         # Update history with new quality
-                                        db_manager.add_history(anime_info['id'], anime_info['name'], 
+                                        data_manager.add_history(anime_info['id'], anime_info['name'], 
                                                              current_episode, mode, anime_info['episodes'], new_quality, new_provider)
                                         
                                         # Update current selection for future controls
@@ -2472,13 +2666,13 @@ def main():
                             break
                 
                 elif choice == 2:  # Continue watching
-                    ui.handle_continue_watching(api, provider_manager, player, config_manager, db_manager, args, player_path, player_name)
+                    ui.handle_continue_watching(api, provider_manager, player, config_manager, data_manager, args, player_path, player_name)
                 
                 elif choice == 3:  # Download
                      ui.handle_download_flow(api, provider_manager, download_manager, config_manager, args)
                 
                 elif choice == 4:  # History
-                    history = db_manager.get_history()
+                    history = data_manager.get_history()
                     print_section("VIEWING HISTORY", "📚")
                     
                     if not history:
@@ -2491,7 +2685,7 @@ def main():
                     input("Press Enter to continue...")
                 
                 elif choice == 5:  # Downloads
-                    downloads = db_manager.get_downloads()
+                    downloads = data_manager.get_downloads()
                     print_section("DOWNLOAD HISTORY", "📁")
                     
                     if not downloads:
@@ -2505,7 +2699,7 @@ def main():
                     input("Press Enter to continue...")
                 
                 elif choice == 6:  # Provider stats
-                    stats = db_manager.get_provider_rankings()
+                    stats = data_manager.get_provider_rankings()
                     print_section("PROVIDER STATISTICS", "📊")
                     
                     if not stats:
@@ -2525,7 +2719,7 @@ def main():
                     print(f"Player: {player_name} ({player_path})")
                     print(f"Download directory: {DOWNLOAD_DIR}")
                     print(f"Cache directory: {CACHE_DIR}")
-                    print(f"Database: {HISTORY_DB}")
+                    print(f"Database: {HISTORY_FILE}")
                     print(f"Log file: {LOG_FILE}")
                     
                     input("Press Enter to continue...")
