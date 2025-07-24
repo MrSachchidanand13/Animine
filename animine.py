@@ -2420,9 +2420,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-"""
-If you think is good piece of code for you then i am glad my hard work paid off bcz this work took about 10 hr to a lot to imagine but short to live 
-It was fun build ani-cli in python just in simple way 
-Hope You Will Enjoy It 😎
-"""
