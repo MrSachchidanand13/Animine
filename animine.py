@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Highly Inspired By ani-cli 
-It is a very amazing Tool Do check out and give stars to original creator 
+Anime CLI - A command line tool for streaming and downloading anime
 
 Features:
 - Multi-provider support (Wixmp, SharePoint, YouTube, HiAnime)
 - Working quality/provider change functionality
 - Intelligent player selection (MPV/VLC) with auto-detection
 - Advanced download system with progress tracking
-- Smart caching and history management
+- JSON-based data storage for history and downloads
 - Resume watching functionality
 - Configuration management
 - Cross-platform compatibility
@@ -22,7 +21,6 @@ import sys
 import subprocess
 import argparse
 import os
-import sqlite3
 import time
 import glob
 import configparser
@@ -62,7 +60,7 @@ ALLANIME_API = f"https://api.{ALLANIME_BASE}"
 
 # Directory Configuration
 CURRENT_DIR = Path.cwd()
-APP_DIR = CURRENT_DIR / ".anime_cli"
+APP_DIR = CURRENT_DIR / "anime_cli"
 DOWNLOAD_DIR = CURRENT_DIR / "downloads"
 CACHE_DIR = APP_DIR / "cache"
 CONFIG_FILE = APP_DIR / "config.ini"
@@ -148,8 +146,6 @@ def print_banner():
     """Display the application banner with version info"""
     banner = f"""
 
-                                                                                                                                                          
-
  █████╗ ███╗   ██╗██╗███╗   ███╗██╗███╗   ██╗███████╗
 ██╔══██╗████╗  ██║██║████╗ ████║██║████╗  ██║██╔════╝
 ███████║██╔██╗ ██║██║██╔████╔██║██║██╔██╗ ██║█████╗  
@@ -158,8 +154,7 @@ def print_banner():
 ╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝
 
 Version: {APP_VERSION}
-Author: Mr Sachchidanand                                                                                                                                                
-                                                                                                                                                                                                                  
+Author: Mr Sachchidanand                                                                
 """
     print(banner)
 
@@ -180,146 +175,6 @@ def loading_animation(text: str, duration: float = 2.0):
         i += 1
     
     print(f"\r{AnimeColor.SUCCESS}✓ {text} complete{AnimeColor.RESET}")
-def handle_download_flow(self, api, provider_manager, download_manager, config_manager, args):
-    """Complete download flow function"""
-    query = input(f"\n{AnimeColor.WARNING}Enter anime name to download: {AnimeColor.RESET}")
-    if not query.strip():
-        return
-    
-    mode = "dub" if args.dub else "sub"
-    loading_animation("Searching anime for download")
-    
-    anime_list = api.search_anime(query.strip(), mode)
-    anime_info = self.show_anime_selection(anime_list)
-    
-    if not anime_info:
-        input("Press Enter to continue...")
-        return
-    
-    episodes = api.get_episodes_list(anime_info['id'], mode)
-    if not episodes:
-        print(f"{AnimeColor.ERROR}No episodes found{AnimeColor.RESET}")
-        input("Press Enter to continue...")
-        return
-    
-    print_section("DOWNLOAD EPISODE SELECTION", "📥")
-    print(f"Anime: {anime_info['name']}")
-    print(f"Available episodes: {len(episodes)}")
-    
-    # Show episodes in grid format
-    cols = config_manager.config.getint('PREFERENCES', 'episode_grid_cols', fallback=8)
-    for i in range(0, len(episodes), cols):
-        row = episodes[i:i+cols]
-        line = "  ".join(f"{AnimeColor.SECONDARY}{ep:>4s}{AnimeColor.RESET}" for ep in row)
-        print(f"  {line}")
-    
-    # Main download loop for multiple episodes
-    while True:
-        # Ask for episode number
-        episode_choice = input(f"\n{AnimeColor.WARNING}Enter episode number to download (or 'q' to quit): {AnimeColor.RESET}")
-        
-        if episode_choice.lower() == 'q':
-            break
-        
-        if episode_choice not in episodes:
-            print(f"{AnimeColor.ERROR}Episode {episode_choice} not found{AnimeColor.RESET}")
-            continue
-        
-        # Get download links
-        loading_animation("Getting download links")
-        links = provider_manager.get_all_links(anime_info['id'], episode_choice, mode)
-        
-        if not links:
-            print(f"{AnimeColor.ERROR}No download links found for Episode {episode_choice}{AnimeColor.RESET}")
-            continue
-        
-        # Filter to only MP4 links for download
-        mp4_links = [link for link in links if link[0] == 'mp4']
-        
-        if not mp4_links:
-            print(f"{AnimeColor.ERROR}No MP4 download links available for Episode {episode_choice}{AnimeColor.RESET}")
-            print(f"{AnimeColor.INFO}Only M3U8 streams found (not suitable for download){AnimeColor.RESET}")
-            continue
-        
-        # Show download quality selection
-        selected_download = self.show_download_quality_selection(mp4_links)
-        if not selected_download:
-            continue
-        
-        fmt, quality, url, provider = selected_download
-        
-        print(f"\n{AnimeColor.INFO}Selected for download:{AnimeColor.RESET}")
-        print(f"  Anime: {anime_info['name']}")
-        print(f"  Episode: {episode_choice}")
-        print(f"  Quality: {quality}")
-        print(f"  Provider: {provider}")
-        print(f"  Format: {fmt.upper()}")
-        
-        # Start download
-        success = download_manager.download_episode(
-            anime_info['name'], 
-            episode_choice, 
-            quality, 
-            url, 
-            provider
-        )
-        
-        if success:
-            print(f"\n{AnimeColor.SUCCESS}✅ Episode {episode_choice} downloaded successfully!{AnimeColor.RESET}")
-        else:
-            print(f"\n{AnimeColor.ERROR}❌ Episode {episode_choice} download failed{AnimeColor.RESET}")
-        
-        # Ask if user wants to download another episode
-        another = input(f"\n{AnimeColor.WARNING}Download another episode? (y/N): {AnimeColor.RESET}")
-        if another.lower() != 'y':
-            break
-    
-    input("Press Enter to continue...")
-
-def show_download_quality_selection(self, mp4_links: List[Tuple]) -> Optional[Tuple]:
-    """Display download quality selection with provider grouping"""
-    if not mp4_links:
-        print(f"{AnimeColor.ERROR}No download options available{AnimeColor.RESET}")
-        return None
-    
-    print_section("DOWNLOAD QUALITY SELECTION", "⚡")
-    
-    # Group by provider for better display
-    providers = {}
-    for i, (fmt, quality, url, provider) in enumerate(mp4_links):
-        if provider not in providers:
-            providers[provider] = []
-        providers[provider].append((i, fmt, quality, url))
-    
-    # Display grouped options
-    option_index = 0
-    download_options = []
-    
-    for provider in ["Wixmp", "SharePoint", "YouTube"]:  # Skip HiAnime for downloads
-        if provider in providers:
-            provider_color = AnimeColor.SUCCESS if provider == "Wixmp" else AnimeColor.INFO
-            print(f"\n{provider_color}{provider} Provider:{AnimeColor.RESET}")
-            
-            for _, fmt, quality, url in providers[provider]:
-                option_index += 1
-                print(f"  {AnimeColor.HIGHLIGHT}{option_index:2d}.{AnimeColor.RESET} 🎥 {quality} [{fmt.upper()}]")
-                download_options.append((fmt, quality, url, provider))
-    
-    if not download_options:
-        print(f"{AnimeColor.ERROR}No download options available{AnimeColor.RESET}")
-        return None
-    
-    # Ask user to select download option
-    try:
-        choice = int(input(f"\n{AnimeColor.WARNING}Select download option (1-{len(download_options)}): {AnimeColor.RESET}"))
-        if 1 <= choice <= len(download_options):
-            return download_options[choice - 1]
-        else:
-            print(f"{AnimeColor.ERROR}Invalid selection{AnimeColor.RESET}")
-            return None
-    except (ValueError, KeyboardInterrupt):
-        print(f"{AnimeColor.ERROR}Invalid input{AnimeColor.RESET}")
-        return None
 
 def sanitize_filename(filename: str) -> str:
     """Sanitize filename for cross-platform compatibility"""
@@ -341,184 +196,6 @@ def sanitize_filename(filename: str) -> str:
         filename = filename[:200].rsplit('_', 1)[0]
     
     return filename or "unnamed"
-
-def _start_watching_session(self, anime_info, episodes, starting_episode, mode, api, provider_manager, player, data_manager, player_path, player_name):
-    """Start a complete watching session with navigation"""
-    current_episode = starting_episode
-    current_links = None
-    
-    while True:
-        clear_terminal()
-        print(f"{AnimeColor.SUCCESS}Watching: {anime_info['name']} - Episode {current_episode}{AnimeColor.RESET}")
-        print(f"{AnimeColor.INFO}Mode: {mode.upper()}{AnimeColor.RESET}")
-        
-        loading_animation("Getting video links")
-        links = provider_manager.get_all_links(anime_info['id'], current_episode, mode)
-        current_links = links  # Store for quality change
-        
-        if not links:
-            print(f"{AnimeColor.ERROR}No video links found for Episode {current_episode}{AnimeColor.RESET}")
-            
-            # Ask if user wants to try different episode
-            retry_choice = input(f"{AnimeColor.WARNING}Try different episode? (y/N): {AnimeColor.RESET}")
-            if retry_choice.lower() == 'y':
-                new_episode = self.show_episode_selection(episodes, current_episode)
-                if new_episode:
-                    current_episode = new_episode
-                    continue
-            break
-        
-        # Auto-select best quality or show selection
-        if len(links) == 1:
-            selected_link = links[0]
-        else:
-            # Try to find previous quality/provider first
-            preferred_link = None
-            for link in links:
-                if link[0] == 'mp4':  # Prefer MP4 format
-                    preferred_link = link
-                    break
-            
-            if preferred_link:
-                use_auto = input(f"{AnimeColor.INFO}Auto-select {preferred_link[1]} from {preferred_link[3]}? (Y/n): {AnimeColor.RESET}")
-                if use_auto.lower() != 'n':
-                    selected_link = preferred_link
-                else:
-                    selected_link = self.show_quality_selection(links)
-                    if not selected_link:
-                        break
-            else:
-                selected_link = self.show_quality_selection(links)
-                if not selected_link:
-                    break
-        
-        fmt, quality, url, provider = selected_link
-        print(f"{AnimeColor.SUCCESS}Selected: {quality} from {provider}{AnimeColor.RESET}")
-        
-        # Launch player
-        process = player.launch_player(url, anime_info['name'], current_episode, player_path, player_name)
-        if process:
-            print(f"{AnimeColor.SUCCESS}Player launched successfully{AnimeColor.RESET}")
-            
-            # Update history
-            data_manager.add_history(anime_info['id'], anime_info['name'], 
-                                 current_episode, mode, anime_info['episodes'], quality, provider)
-        else:
-            print(f"{AnimeColor.ERROR}Failed to launch player{AnimeColor.RESET}")
-            input("Press Enter to continue...")
-            break
-        
-        # Show controls with current links
-        time.sleep(2)
-        action, data = self.show_player_controls(current_episode, episodes, current_links)
-        
-        if action == 1:  # Continue
-            continue
-        elif action == 2:  # Next episode
-            current_idx = episodes.index(current_episode)
-            if current_idx < len(episodes) - 1:
-                current_episode = episodes[current_idx + 1]
-                continue
-            else:
-                print(f"{AnimeColor.SUCCESS}Finished watching {anime_info['name']}!{AnimeColor.RESET}")
-                input("Press Enter to continue...")
-                break
-        elif action == 3:  # Previous episode
-            current_idx = episodes.index(current_episode)
-            if current_idx > 0:
-                current_episode = episodes[current_idx - 1]
-                continue
-            else:
-                print(f"{AnimeColor.WARNING}Already at first episode{AnimeColor.RESET}")
-                input("Press Enter to continue...")
-        elif action == 4:  # Change episode
-            new_episode = self.show_episode_selection(episodes, current_episode)
-            if new_episode:
-                current_episode = new_episode
-                continue
-        elif action == 5:  # Change quality
-            if data:  # data contains current_links
-                print_section("CHANGE QUALITY/PROVIDER", "⚡")
-                new_selection = self.show_quality_selection(data)
-                if new_selection:
-                    new_fmt, new_quality, new_url, new_provider = new_selection
-                    
-                    # Close current player
-                    player.close_player()
-                    time.sleep(1)
-                    
-                    # Launch with new quality
-                    process = player.launch_player(new_url, anime_info['name'], current_episode, player_path, player_name)
-                    if process:
-                        print(f"{AnimeColor.SUCCESS}Switched to: {new_quality} from {new_provider}{AnimeColor.RESET}")
-                        
-                        # Update history with new quality
-                        data_manager.add_history(anime_info['id'], anime_info['name'], 
-                                             current_episode, mode, anime_info['episodes'], new_quality, new_provider)
-                        
-                        # Update current selection for future controls
-                        selected_link = new_selection
-                        fmt, quality, url, provider = selected_link
-                        
-                        time.sleep(2)
-                        continue
-                    else:
-                        print(f"{AnimeColor.ERROR}Failed to launch with new quality{AnimeColor.RESET}")
-                        input("Press Enter to continue...")
-            else:
-                print(f"{AnimeColor.ERROR}No quality options available{AnimeColor.RESET}")
-                input("Press Enter to continue...")
-        elif action == 6:  # Download
-            # Get fresh links for download (MP4 only)
-            download_links = [link for link in current_links if link[0] == 'mp4']
-            if download_links:
-                selected_download = self.show_download_quality_selection(download_links)
-                if selected_download:
-                    dl_fmt, dl_quality, dl_url, dl_provider = selected_download
-                    download_manager = self.db  # You'll need to pass this
-                    # For now, show download info
-                    print(f"{AnimeColor.INFO}Download feature available - would download:{AnimeColor.RESET}")
-                    print(f"  {anime_info['name']} - Episode {current_episode}")
-                    print(f"  Quality: {dl_quality} from {dl_provider}")
-            else:
-                print(f"{AnimeColor.ERROR}No MP4 links available for download{AnimeColor.RESET}")
-            input("Press Enter to continue...")
-        elif action == 7:  # Cache info
-            cache_files = list(CACHE_DIR.glob("*.json"))
-            print(f"{AnimeColor.INFO}Cache files: {len(cache_files)}{AnimeColor.RESET}")
-            print(f"{AnimeColor.INFO}Cache directory: {CACHE_DIR}{AnimeColor.RESET}")
-            input("Press Enter to continue...")
-        else:  # Back to main
-            break
-
-def show_continue_episode_selection(self, episodes: List[str], last_episode: str, next_episode: str) -> Optional[str]:
-    """Show episode selection for continue watching with context"""
-    print_section(f"EPISODE SELECTION - Continue Watching", "▶️")
-    print(f"Last watched: Episode {last_episode}")
-    print(f"Next episode: Episode {next_episode}")
-    print()
-    
-    # Display in grid with highlighting
-    cols = self.config.config.getint('PREFERENCES', 'episode_grid_cols', fallback=8)
-    for i in range(0, len(episodes), cols):
-        row = episodes[i:i+cols]
-        line = "  ".join(
-            f"{AnimeColor.SUCCESS if ep == next_episode else AnimeColor.WARNING if ep == last_episode else AnimeColor.SECONDARY}{ep:>4s}{AnimeColor.RESET}"
-            for ep in row
-        )
-        print(f"  {line}")
-    
-    print(f"\n{AnimeColor.INFO}🟢 = Next Episode | 🟡 = Last Watched | ⚪ = Available{AnimeColor.RESET}")
-    
-    try:
-        choice = input(f"\n{AnimeColor.WARNING}Press Enter for next episode, or enter episode number: {AnimeColor.RESET}")
-        
-        if not choice.strip():
-            return next_episode
-        
-        return choice if choice in episodes else None
-    except KeyboardInterrupt:
-        return None
 
 def find_executable(executable_name: str) -> Optional[str]:
     """Enhanced Windows executable finder with registry support"""
@@ -770,29 +447,21 @@ class JSONDataManager:
     """Advanced JSON-based data management for history and downloads"""
     
     def __init__(self):
-        # Set default data directory
-        self.data_dir = Path.home() / ".anime_cli"
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        
-        # JSON file paths
-        self.history_file = self.data_dir / "history.json"
-        self.downloads_file = self.data_dir / "downloads.json"
-        self.provider_stats_file = self.data_dir / "provider_stats.json"
-        
+        # Initialize JSON files
         self.init_json_files()
     
     def init_json_files(self):
         """Initialize JSON files with proper structure"""
         default_files = {
-            self.history_file: {
+            HISTORY_FILE: {
                 "history": [],
                 "last_updated": datetime.now().isoformat()
             },
-            self.downloads_file: {
+            DOWNLOADS_FILE: {
                 "downloads": [],
                 "last_updated": datetime.now().isoformat()
             },
-            self.provider_stats_file: {
+            PROVIDER_STATS_FILE: {
                 "providers": {},
                 "last_updated": datetime.now().isoformat()
             }
@@ -852,7 +521,7 @@ class JSONDataManager:
                    total_episodes: int, quality: str = None, provider: str = None):
         """Add or update viewing history with enhanced data"""
         try:
-            data = self._load_json(self.history_file)
+            data = self._load_json(HISTORY_FILE)
             if "history" not in data:
                 data["history"] = []
             
@@ -917,7 +586,7 @@ class JSONDataManager:
             data["history"] = data["history"][:100]
             
             # Save the data
-            success = self._save_json(self.history_file, data)
+            success = self._save_json(HISTORY_FILE, data)
             if success:
                 logger.info(f"History successfully saved for {anime_name} episode {episode}")
                 print(f"✓ History updated: {anime_name} EP{episode}")
@@ -935,7 +604,7 @@ class JSONDataManager:
     def get_history(self, limit: int = 20) -> List[Tuple]:
         """Get viewing history with detailed information"""
         try:
-            data = self._load_json(self.history_file)
+            data = self._load_json(HISTORY_FILE)
             history_list = []
             
             for entry in data.get("history", [])[:limit]:
@@ -960,7 +629,7 @@ class JSONDataManager:
     def get_continue_options(self, limit: int = 10) -> List[Tuple]:
         """Get anime that can be continued"""
         try:
-            data = self._load_json(self.history_file)
+            data = self._load_json(HISTORY_FILE)
             continue_list = []
             
             for entry in data.get("history", []):
@@ -997,7 +666,7 @@ class JSONDataManager:
                     file_path: str, file_size: int = 0, download_speed: float = 0.0):
         """Add download record with performance metrics"""
         try:
-            data = self._load_json(self.downloads_file)
+            data = self._load_json(DOWNLOADS_FILE)
             if "downloads" not in data:
                 data["downloads"] = []
             
@@ -1031,7 +700,7 @@ class JSONDataManager:
             data["downloads"] = data["downloads"][:200]
             
             # Save the data
-            success = self._save_json(self.downloads_file, data)
+            success = self._save_json(DOWNLOADS_FILE, data)
             if success:
                 logger.info(f"Download recorded: {anime_name} episode {episode}")
             
@@ -1041,7 +710,7 @@ class JSONDataManager:
     def get_downloads(self, limit: int = 20) -> List[Tuple]:
         """Get download history"""
         try:
-            data = self._load_json(self.downloads_file)
+            data = self._load_json(DOWNLOADS_FILE)
             downloads_list = []
             
             for entry in data.get("downloads", [])[:limit]:
@@ -1066,7 +735,7 @@ class JSONDataManager:
     def update_provider_stats(self, provider: str, success: bool, response_time: float = 0.0):
         """Update provider performance statistics"""
         try:
-            data = self._load_json(self.provider_stats_file)
+            data = self._load_json(PROVIDER_STATS_FILE)
             if "providers" not in data:
                 data["providers"] = {}
             
@@ -1098,7 +767,7 @@ class JSONDataManager:
             provider_data["last_used"] = datetime.now().isoformat()
             
             # Save the data
-            success_save = self._save_json(self.provider_stats_file, data)
+            success_save = self._save_json(PROVIDER_STATS_FILE, data)
             if success_save:
                 logger.debug(f"Provider stats updated for {provider}")
             
@@ -1108,7 +777,7 @@ class JSONDataManager:
     def get_provider_rankings(self) -> List[Tuple]:
         """Get provider performance rankings"""
         try:
-            data = self._load_json(self.provider_stats_file)
+            data = self._load_json(PROVIDER_STATS_FILE)
             rankings = []
             
             for provider_name, stats in data.get("providers", {}).items():
@@ -1142,7 +811,7 @@ class JSONDataManager:
         """Clear all viewing history"""
         try:
             data = {"history": [], "last_updated": datetime.now().isoformat()}
-            success = self._save_json(self.history_file, data)
+            success = self._save_json(HISTORY_FILE, data)
             if success:
                 logger.info("History cleared successfully")
             return success
@@ -1154,7 +823,7 @@ class JSONDataManager:
         """Clear all download history"""
         try:
             data = {"downloads": [], "last_updated": datetime.now().isoformat()}
-            success = self._save_json(self.downloads_file, data)
+            success = self._save_json(DOWNLOADS_FILE, data)
             if success:
                 logger.info("Download history cleared successfully")
             return success
@@ -1165,9 +834,9 @@ class JSONDataManager:
     def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive statistics"""
         try:
-            history_data = self._load_json(self.history_file)
-            downloads_data = self._load_json(self.downloads_file)
-            provider_data = self._load_json(self.provider_stats_file)
+            history_data = self._load_json(HISTORY_FILE)
+            downloads_data = self._load_json(DOWNLOADS_FILE)
+            provider_data = self._load_json(PROVIDER_STATS_FILE)
             
             stats = {
                 "total_anime_watched": len(history_data.get("history", [])),
@@ -2462,7 +2131,6 @@ class UserInterface:
             else:  # Back to main
                 break
 
-
 def main():
     """Main application entry point with Windows optimization"""
     parser = argparse.ArgumentParser(
@@ -2477,9 +2145,9 @@ def main():
     args = parser.parse_args()
     
     try:
-        # ✅ FIXED: Initialize components with correct constructor
+        # Initialize components
         config_manager = ConfigManager(Path(args.config) if args.config else CONFIG_FILE)
-        data_manager = JSONDataManager()  # ✅ FIXED: No parameters needed
+        data_manager = JSONDataManager()
         api = AnimeAPI(config_manager)
         provider_manager = ProviderManager(config_manager, data_manager)
         download_manager = DownloadManager(config_manager, data_manager)
@@ -2552,7 +2220,7 @@ def main():
                     if not current_episode:
                         continue
                     
-                    # Main watching loop with FIXED quality change
+                    # Main watching loop with quality change
                     current_links = None
                     while True:
                         clear_terminal()
@@ -2618,7 +2286,7 @@ def main():
                             if new_episode:
                                 current_episode = new_episode
                                 continue
-                        elif action == 5:  # FIXED: Change quality
+                        elif action == 5:  # Change quality
                             if data:  # data contains current_links
                                 
                                 new_selection = ui.show_quality_selection(data)
@@ -2669,7 +2337,7 @@ def main():
                     ui.handle_continue_watching(api, provider_manager, player, config_manager, data_manager, args, player_path, player_name)
                 
                 elif choice == 3:  # Download
-                     ui.handle_download_flow(api, provider_manager, download_manager, config_manager, args)
+                    ui.handle_download_flow(api, provider_manager, download_manager, config_manager, args)
                 
                 elif choice == 4:  # History
                     history = data_manager.get_history()
