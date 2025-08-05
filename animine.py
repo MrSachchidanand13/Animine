@@ -263,7 +263,7 @@ class ConfigManager:
             'mpv_path': '',
             'preferred_player': 'mpv',
             'auto_detect': 'true',
-            'player_args_vlc': '--play-and-exit --no-video-deco --vout directx --avcodec-hw none',
+            'player_args_vlc': '--play-and-exit ',
             'player_args_mpv': '--keep-open=no --vo=gpu --hwdec=no'
         }
         
@@ -2420,3 +2420,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
